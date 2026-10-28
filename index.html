@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AutomataCraft - NFA to DFA Visualizer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['Fira Code', 'monospace'],
+                    },
+                    colors: {
+                        brand: {
+                            DEFAULT: '#5a4fcf',
+                            hover: '#4b42b0',
+                            light: '#e8e6f9',
+                        },
+                        bgLight: '#f4f6fa',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { background-color: #f4f6fa; color: #1f2937; }
+        .tab-active { border-bottom: 2px solid #5a4fcf; color: #5a4fcf; font-weight: 500; }
+        .tab-inactive { color: #6b7280; }
+        .tab-inactive:hover { color: #374151; }
+        
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        
+        /* D3 Graph Styles */
+        .node circle { fill: #fff; stroke: #374151; stroke-width: 2px; transition: fill 0.3s, stroke 0.3s; }
+        .node.accept circle { stroke-width: 4px; border-style: double; }
+        .node.accept circle.inner { stroke-width: 1px; fill: none; }
+        .node.active circle { fill: #e8e6f9; stroke: #5a4fcf; stroke-width: 3px; }
+        .node text { font-family: 'Inter', sans-serif; font-size: 12px; pointer-events: none; text-anchor: middle; dominant-baseline: central; font-weight: 600; fill: #1f2937; }
+        .link { fill: none; stroke: #9ca3af; stroke-width: 1.5px; transition: stroke 0.3s; }
+        .link.active { stroke: #5a4fcf; stroke-width: 2.5px; }
+        .link-label { font-family: 'Fira Code', monospace; font-size: 11px; fill: #4b5563; background: white; }
+        .link-label.active { fill: #5a4fcf; font-weight: bold; }
+        
+        /* Arrow markers */
+        #arrow { fill: #9ca3af; }
+        #arrow-active { fill: #5a4fcf; }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col font-sans">
+
+    <!-- Header -->
+    <header class="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between shadow-sm z-10">
+        <div class="flex items-center gap-3">
+            <div class="bg-brand w-8 h-8 rounded-lg flex items-center justify-center text-white shrink-0 shadow-md">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                </svg>
+            </div>
+            <div class="flex flex-col leading-tight">
+                <span class="text-lg font-bold text-gray-900 tracking-tight">AutomataCraft</span>
+                <span class="text-[10px] text-gray-500 font-medium uppercase tracking-wider">NFA to DFA Visualizer</span>
+            </div>
+        </div>
+        <div>
+            <span class="bg-brand-light text-brand text-xs font-bold px-3 py-1.5 rounded-full tracking-wide">THEORY OF COMPUTATION</span>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="flex-grow container mx-auto max-w-7xl px-4 py-8 flex flex-col gap-6">
+        
+        <!-- Hero Section -->
+        <section class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-2">
+            <div>
+                <h1 class="text-3xl font-bold text-gray-900 mb-1 tracking-tight">Design. Convert. Simulate.</h1>
+                <p class="text-gray-500 text-sm">Define an NFA, convert it to a DFA via subset construction, and trace string executions.</p>
+            </div>
+            <button id="btn-load-example" class="bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium py-2 px-4 rounded-lg transition-colors border border-gray-200 flex items-center gap-2">
+                Load Example (Ends with '01')
+            </button>
+        </section>
+
+        <!-- Grid Layout -->
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 h-full items-start">
+            
+            <!-- Left Column: NFA Builder & Input (Col span 4) -->
+            <div class="lg:col-span-4 bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col overflow-hidden sticky top-6">
+                
+                <div class="px-5 py-3 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+                    <h2 class="font-semibold text-gray-800 text-sm">01 / NFA Definition</h2>
+                </div>
+
+                <div class="p-5 space-y-4 overflow-y-auto max-h-[50vh]">
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-[11px] font-semibold text-gray-500 mb-1 uppercase">States (comma sep)</label>
+                            <input type="text" id="nfa-states" value="q0, q1, q2" class="w-full bg-white border border-gray-300 text-gray-700 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand font-mono">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-semibold text-gray-500 mb-1 uppercase">Alphabet</label>
+                            <input type="text" id="nfa-alphabet" value="0, 1" class="w-full bg-white border border-gray-300 text-gray-700 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand font-mono">
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-[11px] font-semibold text-gray-500 mb-1 uppercase">Start State</label>
+                            <input type="text" id="nfa-start" value="q0" class="w-full bg-white border border-gray-300 text-gray-700 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand font-mono">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-semibold text-gray-500 mb-1 uppercase">Accept States</label>
+                            <input type="text" id="nfa-accept" value="q2" class="w-full bg-white border border-gray-300 text-gray-700 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand font-mono">
+                        </div>
+                    </div>
+
+                    <div>
+                        <div class="flex justify-between items-end mb-1">
+                            <label class="block text-[11px] font-semibold text-gray-500 uppercase">Transitions</label>
+                        </div>
+                        <div id="transitions-list" class="space-y-2 mb-2">
+                            <!-- Populated by JS -->
+                        </div>
+                        <div class="flex gap-2 items-center bg-gray-50 p-2 rounded border border-gray-200">
+                            <input type="text" id="t-from" placeholder="From" class="w-1/3 bg-white border border-gray-300 text-gray-700 rounded px-2 py-1 text-xs font-mono">
+                            <input type="text" id="t-sym" placeholder="Sym (ε)" class="w-1/4 bg-white border border-gray-300 text-gray-700 rounded px-2 py-1 text-xs font-mono">
+                            <input type="text" id="t-to" placeholder="To" class="w-1/3 bg-white border border-gray-300 text-gray-700 rounded px-2 py-1 text-xs font-mono">
+                            <button id="btn-add-trans" class="bg-gray-200 hover:bg-gray-300 text-gray-700 rounded px-2 py-1 text-xs font-bold">+</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="px-5 py-4 bg-gray-50 border-t border-gray-200">
+                    <button id="btn-convert" class="w-full bg-brand hover:bg-brand-hover text-white text-sm font-medium py-2 px-5 rounded-md transition-colors shadow-sm">Build NFA & Convert to DFA</button>
+                </div>
+                
+                <!-- Player Section -->
+                <div class="px-5 py-4 border-t border-gray-200 bg-white">
+                    <label class="block text-[11px] font-semibold text-gray-500 mb-2 uppercase">Input Simulation</label>
+                    <div class="flex gap-2">
+                        <input type="text" id="sim-input" placeholder="e.g. 1001" class="flex-grow bg-gray-50 border border-gray-300 text-gray-700 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-brand font-mono">
+                        <button id="btn-step" class="bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium py-2 px-3 rounded-md transition-colors border border-gray-200" title="Step forward">Step</button>
+                        <button id="btn-play" class="bg-green-100 hover:bg-green-200 text-green-700 text-sm font-medium py-2 px-3 rounded-md transition-colors border border-green-200" title="Play animation">▶ Play</button>
+                        <button id="btn-reset-sim" class="bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium py-2 px-3 rounded-md transition-colors border border-gray-200" title="Reset">⟲</button>
+                    </div>
+                    <div id="sim-status" class="mt-3 text-sm font-medium text-gray-500 text-center h-5">Enter string to simulate.</div>
+                </div>
+            </div>
+
+            <!-- Right Column: Visualizations (Col span 8) -->
+            <div class="lg:col-span-8 bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col h-[75vh]">
+                
+                <!-- Tabs -->
+                <div class="px-6 border-b border-gray-200 bg-gray-50 pt-2 flex justify-between items-end">
+                    <nav class="flex gap-6 text-sm">
+                        <button class="tab-btn tab-active pb-3 px-1 transition-colors" data-target="tab-nfa">NFA Graph</button>
+                        <button class="tab-btn tab-inactive pb-3 px-1 transition-colors" data-target="tab-dfa">DFA Graph</button>
+                        <button class="tab-btn tab-inactive pb-3 px-1 transition-colors" data-target="tab-steps">Subset Construction Steps</button>
+                    </nav>
+                </div>
+
+                <!-- Tab Contents -->
+                <div class="flex-grow relative overflow-hidden bg-white rounded-b-xl">
+                    
+                    <!-- SVG Defs for arrows -->
+                    <svg style="position:absolute; width:0; height:0;">
+                        <defs>
+                            <marker id="arrow" viewBox="0 -5 10 10" refX="22" refY="0" markerWidth="6" markerHeight="6" orient="auto">
+                                <path d="M0,-5L10,0L0,5" fill="#9ca3af"></path>
+                            </marker>
+                            <marker id="arrow-active" viewBox="0 -5 10 10" refX="22" refY="0" markerWidth="6" markerHeight="6" orient="auto">
+                                <path d="M0,-5L10,0L0,5" fill="#5a4fcf"></path>
+                            </marker>
+                        </defs>
+                    </svg>
+
+                    <!-- NFA Tab -->
+                    <div id="tab-nfa" class="tab-content absolute inset-0">
+                        <div id="nfa-container" class="w-full h-full cursor-move"></div>
+                    </div>
+
+                    <!-- DFA Tab -->
+                    <div id="tab-dfa" class="tab-content hidden absolute inset-0">
+                        <div id="dfa-container" class="w-full h-full cursor-move"></div>
+                    </div>
+
+                    <!-- Steps Tab -->
+                    <div id="tab-steps" class="tab-content hidden absolute inset-0 overflow-y-auto p-6 bg-gray-50">
+                        <div class="bg-white border border-gray-200 rounded-lg p-5 shadow-sm">
+                            <h3 class="font-bold text-gray-800 mb-4 border-b pb-2">Subset Construction Log</h3>
+                            <div id="construction-log" class="font-mono text-sm text-gray-700 space-y-3 whitespace-pre-wrap">
+                                Click "Build NFA & Convert to DFA" to view steps.
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Logic Script -->
+    <script>
+        const EPSILON = 'ε';
+        
+        let rawTransitions = [
+            {from: 'q0', sym: '0', to: 'q0'},
+            {from: 'q0', sym: '1', to: 'q0'},
+            {from: 'q0', sym: '0', to: 'q1'},
+            {from: 'q1', sym: '1', to: 'q2'}
+        ];
+
+        let currentNFA = null;
+        let currentDFA = null;
+        let nfaSim = null;
+        let dfaSim = null;
+
+        // UI Elements
+        const els = {
+            tList: document.getElementById('transitions-list'),
+            btnAddTrans: document.getElementById('btn-add-trans'),
+            tFrom: document.getElementById('t-from'),
+            tSym: document.getElementById('t-sym'),
+            tTo: document.getElementById('t-to'),
+            btnConvert: document.getElementById('btn-convert'),
+            btnExample: document.getElementById('btn-load-example'),
+            
+            tabBtns: document.querySelectorAll('.tab-btn'),
+            tabContents: document.querySelectorAll('.tab-content'),
+            
+            nfaCont: document.getElementById('nfa-container'),
+            dfaCont: document.getElementById('dfa-container'),
+            log: document.getElementById('construction-log'),
+
+            // Animation
+            simInput: document.getElementById('sim-input'),
+            btnStep: document.getElementById('btn-step'),
+            btnPlay: document.getElementById('btn-play'),
+            btnResetSim: document.getElementById('btn-reset-sim'),
+            simStatus: document.getElementById('sim-status'),
+        };
+
+        // --- Tabs ---
+        els.tabBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                els.tabBtns.forEach(b => { b.classList.remove('tab-active'); b.classList.add('tab-inactive'); });
+                btn.classList.add('tab-active'); btn.classList.remove('tab-inactive');
+                
+                els.tabContents.forEach(c => c.classList.add('hidden'));
+                document.getElementById(btn.dataset.target).classList.remove('hidden');
+            });
+        });
+
+        // --- Transition Management UI ---
+        function renderTransitions() {
+            els.tList.innerHTML = '';
+            rawTransitions.forEach((t, i) => {
+                const row = document.createElement('div');
+                row.className = 'flex justify-between items-center bg-gray-50 border border-gray-200 px-2 py-1 rounded';
+                row.innerHTML = `
+                    <span class="font-mono text-xs text-gray-700 flex-grow">δ(${t.from}, ${t.sym}) → ${t.to}</span>
+                    <button class="text-red-400 hover:text-red-600 font-bold px-2 py-0.5 text-xs rounded" onclick="removeTransition(${i})">×</button>
+                `;
+                els.tList.appendChild(row);
+            });
+        }
+
+        window.removeTransition = function(index) {
+            rawTransitions.splice(index, 1);
+            renderTransitions();
+        };
+
+        els.btnAddTrans.addEventListener('click', () => {
+            const from = els.tFrom.value.trim();
+            const sym = els.tSym.value.trim() || EPSILON;
+            const to = els.tTo.value.trim();
+            if(from && to) {
+                rawTransitions.push({from, sym, to});
+                els.tFrom.value = ''; els.tSym.value = ''; els.tTo.value = '';
+                renderTransitions();
+            }
+        });
+
+        els.btnExample.addEventListener('click', () => {
+            document.getElementById('nfa-states').value = 'q0, q1, q2';
+            document.getElementById('nfa-alphabet').value = '0, 1';
+            document.getElementById('nfa-start').value = 'q0';
+            document.getElementById('nfa-accept').value = 'q2';
+            rawTransitions = [
+                {from: 'q0', sym: '0', to: 'q0'},
+                {from: 'q0', sym: '1', to: 'q0'},
+                {from: 'q0', sym: '0', to: 'q1'},
+                {from: 'q1', sym: '1', to: 'q2'}
+            ];
+            renderTransitions();
+            els.btnConvert.click();
+        });
+
+        // Initialize UI
+        renderTransitions();
+
+        // --- Core Algorithm: Subset Construction ---
+
+        function parseNFAInput() {
+            const states = document.getElementById('nfa-states').value.split(',').map(s => s.trim()).filter(Boolean);
+            const alphabet = document.getElementById('nfa-alphabet').value.split(',').map(s => s.trim()).filter(Boolean);
+            const start = document.getElementById('nfa-start').value.trim();
+            const accepts = document.getElementById('nfa-accept').value.split(',').map(s => s.trim()).filter(Boolean);
+            
+            return { states, alphabet, start, accepts, transitions: [...rawTransitions] };
+        }
+
+        function getEpsilonClosure(stateSet, transitions) {
+            let closure = new Set(stateSet);
+            let stack = [...stateSet];
+
+            while(stack.length > 0) {
+                let current = stack.pop();
+                transitions.forEach(t => {
+                    if(t.from === current && (t.sym === EPSILON || t.sym === 'e')) {
+                        if(!closure.has(t.to)) {
+                            closure.add(t.to);
+                            stack.push(t.to);
+                        }
+                    }
+                });
+            }
+            return Array.from(closure).sort();
+        }
+
+        function move(stateSet, symbol, transitions) {
+            let result = new Set();
+            stateSet.forEach(state => {
+                transitions.forEach(t => {
+                    if(t.from === state && t.sym === symbol) {
+                        result.add(t.to);
+                    }
+                });
+            });
+            return Array.from(result).sort();
+        }
+
+        function setName(stateArray) {
+            if(stateArray.length === 0) return '∅';
+            return '{' + stateArray.join(',') + '}';
+        }
+
+        function convertToDFA(nfa) {
+            let dfaStates = [];
+            let dfaTransitions = [];
+            let dfaAccepts = [];
+            let unvisited = [];
+            let stateMap = {}; // mapping DFA name -> NFA state array
+            let logText = "";
+
+            // 1. Initial State
+            let startClosure = getEpsilonClosure([nfa.start], nfa.transitions);
+            let startName = setName(startClosure);
+            
+            dfaStates.push(startName);
+            unvisited.push(startClosure);
+            stateMap[startName] = startClosure;
+
+            logText += `Initialization:\n`;
+            logText += `ε-closure(${nfa.start}) = ${startName} (Start State)\n\n`;
+
+            // 2. Loop until no unvisited sets
+            while(unvisited.length > 0) {
+                let currentSet = unvisited.shift();
+                let currentName = setName(currentSet);
+
+                nfa.alphabet.forEach(sym => {
+                    if(sym === EPSILON || sym === 'e') return; // Only true alphabet
+
+                    let moved = move(currentSet, sym, nfa.transitions);
+                    let closure = getEpsilonClosure(moved, nfa.transitions);
+                    let nextName = setName(closure);
+
+                    logText += `δ'(${currentName}, ${sym}):\n`;
+                    logText += `  move(${currentName}, ${sym}) = ${setName(moved)}\n`;
+                    logText += `  ε-closure(${setName(moved)}) = ${nextName}\n`;
+
+                    dfaTransitions.push({from: currentName, sym: sym, to: nextName});
+
+                    if(!dfaStates.includes(nextName)) {
+                        dfaStates.push(nextName);
+                        unvisited.push(closure);
+                        stateMap[nextName] = closure;
+                        logText += `  -> New DFA state discovered: ${nextName}\n`;
+                    }
+                    logText += `\n`;
+                });
+            }
+
+            // 3. Mark Accepts
+            dfaStates.forEach(dName => {
+                let nfaSet = stateMap[dName];
+                if(nfaSet && nfaSet.some(s => nfa.accepts.includes(s))) {
+                    dfaAccepts.push(dName);
+                }
+            });
+
+            logText += `Accept States Determination:\n`;
+            dfaAccepts.forEach(acc => {
+                logText += `State ${acc} contains an NFA accept state -> Marked as DFA Accept.\n`;
+            });
+
+            return {
+                dfa: {
+                    states: dfaStates,
+                    alphabet: nfa.alphabet,
+                    start: startName,
+                    accepts: dfaAccepts,
+                    transitions: dfaTransitions,
+                    stateMap: stateMap
+                },
+                log: logText
+            };
+        }
+
+        // --- Conversion Execution ---
+        els.btnConvert.addEventListener('click', () => {
+            try {
+                currentNFA = parseNFAInput();
+                const result = convertToDFA(currentNFA);
+                currentDFA = result.dfa;
+                
+                els.log.textContent = result.log;
+                
+                drawGraph(currentNFA, els.nfaCont);
+                drawGraph(currentDFA, els.dfaCont);
+
+                resetSimulation();
+                
+                // Show NFA tab implicitly to confirm action
+                els.tabBtns[0].click();
+            } catch (e) {
+                alert("Error in conversion: " + e.message);
+            }
+        });
+
+
+        // --- D3 Graph Rendering ---
+        function drawGraph(automaton, containerNode) {
+            containerNode.innerHTML = '';
+            const width = containerNode.clientWidth || 800;
+            const height = containerNode.clientHeight || 500;
+
+            const svg = d3.select(containerNode).append("svg")
+                .attr("width", "100%")
+                .attr("height", "100%")
+                .attr("viewBox", [0, 0, width, height]);
+
+            // Combine multi-edges between same source-target
+            let edgesMap = {};
+            automaton.transitions.forEach(t => {
+                let key = t.from + "->" + t.to;
+                if(!edgesMap[key]) edgesMap[key] = { source: t.from, target: t.to, symbols: [] };
+                if(!edgesMap[key].symbols.includes(t.sym)) edgesMap[key].symbols.push(t.sym);
+            });
+
+            let nodesData = automaton.states.map(s => ({ id: s, isStart: s === automaton.start, isAccept: automaton.accepts.includes(s) }));
+            let linksData = Object.values(edgesMap).map(e => ({ source: e.source, target: e.target, label: e.symbols.join(', ') }));
+
+            const g = svg.append("g");
+
+            const zoom = d3.zoom()
+                .scaleExtent([0.3, 3])
+                .on("zoom", (e) => g.attr("transform", e.transform));
+            svg.call(zoom);
+
+            const simulation = d3.forceSimulation(nodesData)
+                .force("link", d3.forceLink(linksData).id(d => d.id).distance(120))
+                .force("charge", d3.forceManyBody().strength(-800))
+                .force("center", d3.forceCenter(width / 2, height / 2))
+                .force("collide", d3.forceCollide().radius(40));
+
+            // Paths
+            const link = g.append("g")
+                .selectAll("path")
+                .data(linksData)
+                .join("path")
+                .attr("class", "link")
+                .attr("id", d => `link-${sanitizeId(d.source.id)}-${sanitizeId(d.target.id)}`)
+                .attr("marker-end", "url(#arrow)");
+
+            // Edge Labels
+            const linkText = g.append("g")
+                .selectAll("text")
+                .data(linksData)
+                .join("text")
+                .attr("class", "link-label")
+                .attr("dy", -5)
+                .append("textPath")
+                .attr("startOffset", "50%")
+                .attr("text-anchor", "middle")
+                .attr("href", d => `#link-${sanitizeId(d.source.id)}-${sanitizeId(d.target.id)}`)
+                .text(d => d.label);
+
+            // Nodes
+            const node = g.append("g")
+                .selectAll("g")
+                .data(nodesData)
+                .join("g")
+                .attr("class", d => `node ${d.isAccept ? 'accept' : ''}`)
+                .attr("id", d => `node-${sanitizeId(d.id)}`)
+                .call(drag(simulation));
+
+            // Outer circle
+            node.append("circle")
+                .attr("r", 20);
+
+            // Inner circle for accept states
+            node.filter(d => d.isAccept).append("circle")
+                .attr("class", "inner")
+                .attr("r", 16);
+            
+            // Start arrow
+            node.filter(d => d.isStart).append("path")
+                .attr("d", "M-40,0 L-25,0")
+                .attr("stroke", "#374151")
+                .attr("stroke-width", 2)
+                .attr("marker-end", "url(#arrow)");
+
+            node.append("text")
+                .text(d => d.id === '∅' ? '∅' : d.id.replace(/[{}]/g, '')); // Simplify labels visually slightly if needed
+
+            simulation.on("tick", () => {
+                link.attr("d", d => {
+                    const dx = d.target.x - d.source.x,
+                          dy = d.target.y - d.source.y,
+                          dr = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (d.source === d.target) {
+                        // Self loop
+                        return `M${d.source.x},${d.source.y - 20} A20,20 0 1,1 ${d.source.x + 1},${d.source.y - 20}`;
+                    } else {
+                        // Curved edges for bidirectionality mapping
+                        const hasReverse = linksData.some(l => l.source === d.target && l.target === d.source);
+                        const sweep = hasReverse ? 1 : 0;
+                        const r = hasReverse ? dr * 1.5 : 0; 
+                        return `M${d.source.x},${d.source.y} A${r},${r} 0 0,${sweep} ${d.target.x},${d.target.y}`;
+                    }
+                });
+
+                node.attr("transform", d => `translate(${d.x},${d.y})`);
+            });
+
+            // Dampen physics quickly
+            setTimeout(() => { simulation.alphaTarget(0); }, 500);
+        }
+
+        function drag(simulation) {
+            function dragstarted(event) {
+                if (!event.active) simulation.alphaTarget(0.3).restart();
+                event.subject.fx = event.subject.x;
+                event.subject.fy = event.subject.y;
+            }
+            function dragged(event) {
+                event.subject.fx = event.x;
+                event.subject.fy = event.y;
+            }
+            function dragended(event) {
+                if (!event.active) simulation.alphaTarget(0);
+                event.subject.fx = null;
+                event.subject.fy = null;
+            }
+            return d3.drag().on("start", dragstarted).on("drag", dragged).on("end", dragended);
+        }
+
+        function sanitizeId(str) {
+            return String(str).replace(/[^a-zA-Z0-9_-]/g, '_');
+        }
+
+
+        // --- Simulation & Animation ---
+        let simInterval = null;
+        let simInputStr = "";
+        let simIndex = 0;
+        let activeNFAStates = [];
+        let activeDFAState = null;
+
+        function resetSimulation() {
+            clearInterval(simInterval);
+            simInputStr = els.simInput.value.trim();
+            simIndex = 0;
+            
+            if(!currentNFA || !currentDFA) return;
+
+            // Reset highlighting
+            d3.selectAll('.node').classed('active', false);
+            d3.selectAll('.link').classed('active', false).attr("marker-end", "url(#arrow)");
+            
+            // Set initial states
+            activeNFAStates = getEpsilonClosure([currentNFA.start], currentNFA.transitions);
+            activeDFAState = currentDFA.start;
+
+            updateHighlights();
+            updateSimStatus("Ready to simulate. Active state(s) highlighted.");
+        }
+
+        function updateHighlights() {
+            // Clear previous
+            d3.select(els.nfaCont).selectAll('.node').classed('active', false);
+            d3.select(els.dfaCont).selectAll('.node').classed('active', false);
+
+            // Highlight NFA
+            activeNFAStates.forEach(s => {
+                d3.select(els.nfaCont).select(`#node-${sanitizeId(s)}`).classed('active', true);
+            });
+
+            // Highlight DFA
+            if(activeDFAState) {
+                d3.select(els.dfaCont).select(`#node-${sanitizeId(activeDFAState)}`).classed('active', true);
+            }
+        }
+
+        function stepSimulation() {
+            if(!currentNFA || !currentDFA) return;
+            if(simIndex >= simInputStr.length) {
+                clearInterval(simInterval);
+                finishSimulation();
+                return;
+            }
+
+            let sym = simInputStr[simIndex];
+            
+            // Step NFA
+            let movedNFA = move(activeNFAStates, sym, currentNFA.transitions);
+            activeNFAStates = getEpsilonClosure(movedNFA, currentNFA.transitions);
+
+            // Step DFA
+            let nextDfa = null;
+            let dfaTrans = currentDFA.transitions.find(t => t.from === activeDFAState && t.sym === sym);
+            if(dfaTrans) nextDfa = dfaTrans.to;
+            activeDFAState = nextDfa; // could be null if dead state not explicitly drawn
+
+            updateHighlights();
+            simIndex++;
+            updateSimStatus(`Processed '${sym}'. Remaining: '${simInputStr.substring(simIndex)}'`);
+        }
+
+        function finishSimulation() {
+            let nfaAccepts = activeNFAStates.some(s => currentNFA.accepts.includes(s));
+            let dfaAccepts = activeDFAState && currentDFA.accepts.includes(activeDFAState);
+            
+            let status = `<span class="text-gray-700">Finished processing '${simInputStr}'.</span> `;
+            if(nfaAccepts || dfaAccepts) {
+                 status += `<span class="text-green-600 font-bold">String ACCEPTED.</span>`;
+            } else {
+                 status += `<span class="text-red-600 font-bold">String REJECTED.</span>`;
+            }
+            updateSimStatus(status);
+        }
+
+        function updateSimStatus(html) {
+            els.simStatus.innerHTML = html;
+        }
+
+        els.btnResetSim.addEventListener('click', resetSimulation);
+        
+        els.simInput.addEventListener('input', resetSimulation);
+
+        els.btnStep.addEventListener('click', () => {
+            if(simIndex === 0 && !activeDFAState) resetSimulation();
+            stepSimulation();
+        });
+
+        els.btnPlay.addEventListener('click', () => {
+            if(simIndex === 0 && !activeDFAState) resetSimulation();
+            if(simIndex >= simInputStr.length) resetSimulation();
+            
+            clearInterval(simInterval);
+            simInterval = setInterval(stepSimulation, 800);
+        });
+
+        // Initialize empty graph placeholders safely on load
+        setTimeout(() => { els.btnExample.click(); }, 100);
+
+    </script>
+</body>
+</html>
